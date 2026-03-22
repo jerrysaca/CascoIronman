@@ -7,12 +7,12 @@ import math
 from urllib.parse import urlencode
 
 led = LED(21)
-# Peticion a la API
-conn = http.client.HTTPSConnection("uacj.ivancarvajal.org")
 payload_req = ''
 headers = {}
 
 while True:
+    # Peticion a la API
+    conn = http.client.HTTPSConnection("uacj.ivancarvajal.org")
 
     try:
         conn.request("GET", "/ords/uacj/ironman/Jarvis?equipo=Equipo%202", payload_req, headers)
@@ -23,7 +23,8 @@ while True:
             response_json = json.loads(data)
             try:
                 payload_str = response_json["items"][0]['payload']
-                
+                status = json.loads(payload_str)["status"]
+
                 if status == 0:
                     led.off()
                     print("LED OFF")
@@ -31,7 +32,7 @@ while True:
                     led.on()
                     print("LED ON")
                     
-            except (KeyError, IndexError) as e:
+            except (KeyError, IndexError, ValueError) as e:
                 print("Error al acceder a los datos de la respuesta:", e)
         else:         
             print("Error en la solicitud:", res.status)
