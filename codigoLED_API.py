@@ -34,7 +34,7 @@ while True:
             except (KeyError, IndexError) as e:
                 print("Error al acceder a los datos de la respuesta:", e)
         else:         
-            print(f"Error en la solicitud: {res.status}")
+            print("Error en la solicitud:", res.status)
     except Exception as e:
         print("Error al realizar la solicitud:", str(e))
         sleep(5)  # Esperar antes de intentar nuevamente
