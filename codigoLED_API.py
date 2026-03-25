@@ -1,5 +1,5 @@
 import gpiozero as gz
-from gpiozero import LED
+from gpiozero import LED, AngularServo
 from gpiozero.pins.pigpio import PiGPIOFactory
 from time import sleep
 import http.client
@@ -8,7 +8,14 @@ import math
 from urllib.parse import urlencode
 
 fabrica_pines = PiGPIOFactory()
-servo_mascara = AngularServo(19, min_angle=0, max_angle=180, pin_factory=fabrica_pines)
+servo_mascara = AngularServo(
+    19, 
+    min_angle=0, 
+    max_angle=180, 
+    min_pulse_width=0.0005, 
+    max_pulse_width=0.0025, 
+    pin_factory=fabrica_pines
+)
 led = LED(21)
 
 payload_req = ''
