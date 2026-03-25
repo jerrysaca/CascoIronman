@@ -1,5 +1,6 @@
 import gpiozero as gz
 from gpiozero import LED
+from gpiozero import AngularServo
 from time import sleep
 import http.client
 import json
@@ -7,6 +8,7 @@ import math
 from urllib.parse import urlencode
 
 led = LED(21)
+servo = AngularServo(23, min_angle=0, max_angle=90)
 payload_req = ''
 headers = {}
 
@@ -27,9 +29,11 @@ while True:
 
                 if status == 0:
                     led.off()
+                    servo.angle = 0
                     print("LED OFF")
                 else:
                     led.on()
+                    servo.angle = 90
                     print("LED ON")
                     
             except (KeyError, IndexError, ValueError) as e:
