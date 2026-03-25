@@ -1,5 +1,5 @@
 import gpiozero as gz
-from gpiozero import LED
+from gpiozero import LED, AngularServo
 from gpiozero.pins.pigpio import PiGPIOFactory
 from time import sleep
 import http.client
