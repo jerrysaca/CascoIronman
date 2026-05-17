@@ -1,3 +1,4 @@
+import time
 import gpiod
 import pyaudio
 import wave
@@ -34,20 +35,26 @@ linea_servo.request(consumer="Jarvis_Servo", type=gpiod.LINE_REQ_DIR_OUT)
 # 2. HILO DE TORQUE CONTINUO (PWM DE FONDO)
 # ==========================================
 def hilo_mantener_servo_rigido():
-    """Manda pulsos a 50Hz infinitamente para bloquear el servo en su posición"""
+    """Mantiene el servo bloqueado reduciendo el jitter con Busy-Waiting en el pulso alto"""
     global angulo_servo
     while True:
         # Capturamos el ángulo global actual
         angle = angulo_servo
         
-        # Mapeo de ángulo a tiempos (Bit-banging)
+        # Mapeo de ángulo a tiempos (segundos)
         t_alto = ((angle * 11.11) + 500) / 1000000.0
         t_bajo = 0.02 - t_alto
         
-        # Generamos un único ciclo de la onda
+        # --- PULSO ALTO PRECISE TIMING ---
+        # Iniciamos un bucle cerrado para asegurar precisión micrométrica
+        start = time.perf_counter()
         linea_servo.set_value(1)
-        sleep(t_alto)
+        while (time.perf_counter() - start) < t_alto:
+            pass  # Se queda aquí atrapado el tiempo exacto sin ceder el control al OS
         linea_servo.set_value(0)
+        
+        # --- PULSO BAJO ---
+        # Aquí sí dormimos de forma normal para que la Orange Pi maneje sus otros hilos
         sleep(t_bajo)
 
 # ==========================================
