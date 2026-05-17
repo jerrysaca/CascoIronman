@@ -6,48 +6,13 @@ import http.client
 import json
 import os
 import sys
-import threading
+import multiprocessing
 import time
 from contextlib import contextmanager
 from time import sleep
 
 # ==========================================
-# 0. VARIABLES DE ESTADO GLOBAL
-# ==========================================
-estado_actual_casco = None  # Monitorea cambios en la API
-
-# ==========================================
-# 1. CONFIGURACIÓN DE HARDWARE (gpiod NATIVO)
-# ==========================================
-SERVO_LINEA = 73  # Pin Físico 13 (PC9)
-LED_LINEA = 70    # Pin Físico 11 (PC6)
-
-chip = gpiod.Chip('gpiochip0')
-
-linea_led = chip.get_line(LED_LINEA)
-linea_led.request(consumer="Jarvis_LED", type=gpiod.LINE_REQ_DIR_OUT)
-
-linea_servo = chip.get_line(SERVO_LINEA)
-linea_servo.request(consumer="Jarvis_Servo", type=gpiod.LINE_REQ_DIR_OUT)
-
-def mover_servo_y_apagar(angle):
-    """Manda una ráfaga de 50 pulsos ultra precisos y luego apaga la señal para eliminar el jitter"""
-    t_alto = ((angle * 11.11) + 500) / 1000000.0
-    t_bajo = 0.02 - t_alto
-    
-    # 50 pulsos a 20ms = 1 segundo continuo de movimiento continuo con torque máximo
-    for _ in range(50):
-        start = time.perf_counter()
-        linea_servo.set_value(1)
-        while (time.perf_counter() - start) < t_alto:
-            pass
-        linea_servo.set_value(0)
-        sleep(t_bajo)
-        
-    # Al salir del ciclo, la línea se queda en 0 lógico. El servo se relaja y el jitter muere.
-
-# ==========================================
-# 2. SILENCIADOR DE ADVERTENCIAS ALSA
+# 1. TRUCO DE CONSOLA: SILENCIADOR DE ALSA
 # ==========================================
 @contextmanager
 def suprimir_stderr():
@@ -63,7 +28,89 @@ def suprimir_stderr():
         os.close(old_stderr)
 
 # ==========================================
-# 3. CONFIGURACIÓN DE AUDIO & API (ASSEMBLYAI)
+# 2. PROCESO AISLADO: GENERADOR PWM (NÚCLEO DEDICADO)
+# ==========================================
+def proceso_servo_pwm(angulo_compartido):
+    """Bucle infinito inmune al GIL. Genera pulso continuo con torque de retención total"""
+    import gpiod
+    import time
+    
+    SERVO_LINEA = 73  # Pin Físico 13 (PC9)
+    chip = gpiod.Chip('gpiochip0')
+    linea_servo = chip.get_line(SERVO_LINEA)
+    linea_servo.request(consumer="Jarvis_Servo_RT", type=gpiod.LINE_REQ_DIR_OUT)
+    
+    while True:
+        # Lee el valor del ángulo de la memoria compartida por el OS
+        angle = angulo_compartido.value
+        
+        # Mapeo preciso a segundos
+        t_alto = ((angle * 11.11) + 500) / 1000000.0
+        t_bajo = 0.02 - t_alto
+        
+        # Pulso Alto (Busy-Waiting puro sin ceder el núcleo)
+        start = time.perf_counter()
+        linea_servo.set_value(1)
+        while (time.perf_counter() - start) < t_alto:
+            pass
+        linea_servo.set_value(0)
+        
+        # Pulso Bajo (Permite respirar al núcleo asignado)
+        time.sleep(t_bajo)
+
+# ==========================================
+# 3. PROCESO AISLADO: MONITOR DE LA API UACJ
+# ==========================================
+def proceso_monitor_api(angulo_compartido):
+    """Revisa la base de datos remotamente y actualiza el hardware y la memoria del OS"""
+    import gpiod
+    import http.client
+    import json
+    import time
+    
+    LED_LINEA = 70    # Pin Físico 11 (PC6)
+    chip = gpiod.Chip('gpiochip0')
+    linea_led = chip.get_line(LED_LINEA)
+    linea_led.request(consumer="Jarvis_LED_RT", type=gpiod.LINE_REQ_DIR_OUT)
+    
+    estado_actual_casco = None
+    payload_req = ''
+    headers = {}
+    
+    print("[MONITOR] >>> Proceso de sincronización con API UACJ activo.")
+    
+    while True:
+        conn = http.client.HTTPSConnection("uacj.ivancarvajal.org")
+        try:
+            conn.request("GET", "/ords/uacj/ironman/Jarvis?equipo=Equipo%202", payload_req, headers)
+            res = conn.getresponse()
+            data = res.read()
+
+            if res.status == 200:
+                response_json = json.loads(data)
+                payload_str = response_json["items"][0]['payload']
+                status_api = json.loads(payload_str)["status"]
+
+                if status_api != estado_actual_casco:
+                    estado_actual_casco = status_api
+                    if status_api == 0:
+                        linea_led.set_value(0)
+                        angulo_compartido.value = 0  # Actualiza el proceso del servo al instante
+                        print("\n[API -> CAMBIO] >>> Estatus 0: Ojos OFF / Servo bloqueado a 0°")
+                    else:
+                        linea_led.set_value(1)
+                        angulo_compartido.value = 90 # Actualiza el proceso del servo al instante
+                        print("\n[API -> CAMBIO] >>> Estatus 1: Ojos ON / Servo bloqueado a 90°")
+                        
+        except Exception as e:
+            pass
+        finally:
+            conn.close()
+        
+        time.sleep(1)
+
+# ==========================================
+# 4. CONFIGURACIÓN DE AUDIO & API GENERAL (PROCESO PRINCIPAL)
 # ==========================================
 aai.settings.base_url = "https://api.assemblyai.com"
 aai.settings.api_key = "abd3cd8bcd7b4b42a9ba8069cc189ecf"
@@ -99,7 +146,7 @@ def grabar_comando(device_idx):
         data = stream.read(CHUNK, exception_on_overflow=False)
         frames.append(data)
 
-    print("[JARVIS] >>> Procesando audio...")
+    print("[JARVIS] >>> Procesando audio en la nube...")
     with suprimir_stderr():
         stream.stop_stream()
         stream.close()
@@ -111,52 +158,6 @@ def grabar_comando(device_idx):
         wf.setframerate(RATE)
         wf.writeframes(b''.join(frames))
 
-# ==========================================
-# 4. HILO DE MONITOREO CONTINUO (GET REQ)
-# ==========================================
-def hilo_monitoreo_api():
-    """Revisa la API y activa el tren de pulsos transitorio solo si hay cambios"""
-    global estado_actual_casco
-    payload_req = ''
-    headers = {}
-    
-    print("[MONITOR] >>> Sincronización activa con API UACJ.")
-    
-    while True:
-        conn = http.client.HTTPSConnection("uacj.ivancarvajal.org")
-        try:
-            conn.request("GET", "/ords/uacj/ironman/Jarvis?equipo=Equipo%202", payload_req, headers)
-            res = conn.getresponse()
-            data = res.read()
-
-            if res.status == 200:
-                response_json = json.loads(data)
-                payload_str = response_json["items"][0]['payload']
-                status_api = json.loads(payload_str)["status"]
-
-                if status_api != estado_actual_casco:
-                    estado_actual_casco = status_api
-                    if status_api == 0:
-                        linea_led.set_value(0)
-                        print("\n[API -> CAMBIO] >>> Modo CERRAR: Moviendo servo a 0°...")
-                        mover_servo_y_apagar(0)  # Mueve durante 1 segundo y apaga la señal
-                        print("[HARDWARE] >>> Posición alcanzada. Señal apagada (Jitter eliminado).")
-                    else:
-                        linea_led.set_value(1)
-                        print("\n[API -> CAMBIO] >>> Modo ABRIR: Moviendo servo a 90°...")
-                        mover_servo_y_apagar(90) # Mueve durante 1 segundo y apaga la señal
-                        print("[HARDWARE] >>> Posición alcanzada. Señal apagada (Jitter eliminado).")
-                        
-        except Exception as e:
-            pass
-        finally:
-            conn.close()
-        
-        sleep(1)
-
-# ==========================================
-# 5. ENVIAR ACTUALIZACIÓN (POST REQ)
-# ==========================================
 def enviar_post_api(status_val):
     conn = http.client.HTTPSConnection("uacj.ivancarvajal.org")
     payload = ''
@@ -197,7 +198,7 @@ def procesar_comando_voz():
         print("-> Comando de voz no reconocido.")
 
 # ==========================================
-# 6. ENTRADA PRINCIPAL
+# 5. PUNTO DE ENTRADA PRINCIPAL
 # ==========================================
 if __name__ == "__main__":
     idx = buscar_indice_ugreen()
@@ -207,11 +208,18 @@ if __name__ == "__main__":
         
     print(f"Adaptador de audio detectado en el índice: {idx}")
     
-    # Lanzamos el único hilo de fondo para monitorear la API
-    api_thread = threading.Thread(target=hilo_monitoreo_api, daemon=True)
-    api_thread.start()
+    # Creamos una variable entera compartida en memoria segura mapeada por el OS ('i' = int)
+    angulo_compartido = multiprocessing.Value('i', 0)
     
-    print("Sistemas ciberfísicos optimizados listos.")
+    # Lanzamos el proceso del Monitor de la API de la UACJ
+    p_api = multiprocessing.Process(target=proceso_monitor_api, args=(angulo_compartido,), daemon=True)
+    p_api.start()
+    
+    # Lanzamos el proceso del PWM del servo en un núcleo independiente
+    p_pwm = multiprocessing.Process(target=proceso_servo_pwm, args=(angulo_compartido,), daemon=True)
+    p_pwm.start()
+    
+    print("Sistemas distribuidos en procesos independientes multiprocesador listos.")
     
     try:
         while True:
