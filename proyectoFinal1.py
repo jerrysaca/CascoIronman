@@ -213,6 +213,15 @@ def procesar_comando_voz():
 # 7. ENTRADA PRINCIPAL Y LANZAMIENTO DE HILOS
 # ==========================================
 if __name__ == "__main__":
+
+    import os
+    try:
+        # Forzamos al sistema a darle la máxima prioridad de tiempo real (99)
+        os.sched_setscheduler(0, os.SCHED_FIFO, os.sched_param(99))
+        print("[OS] >>> Prioridad de Tiempo Real (SCHED_FIFO) activada con éxito.")
+    except Exception as e:
+        print(f"[OS] >>> Advertencia: No se pudo establecer prioridad RT: {e}")
+        
     idx = buscar_indice_ugreen()
     if idx is None:
         print("ERROR: No se detectó el adaptador Ugreen.")
