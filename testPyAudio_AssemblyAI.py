@@ -37,7 +37,7 @@ def set_angle(angle):
 # 2. CONFIGURACIÓN DE AUDIO & API
 # ==========================================
 # RECUERDA: Coloca aquí tu API KEY real de AssemblyAI
-aai.settings.api_key = "TU_API_KEY_AQUÍ" 
+aai.settings.api_key = "abd3cd8bcd7b4b42a9ba8069cc189ecf" 
 
 FORMAT = pyaudio.paInt16
 CHANNELS = 1          # Forzado a Mono (lo que le gustó a tu adaptador)
