@@ -11,9 +11,10 @@ from contextlib import contextmanager
 from time import sleep
 
 # ==========================================
-# 0. CONTROL DE VARIABLES DE ESTADO LOCAL
+# 0. VARIABLES DE ESTADO GLOBAL
 # ==========================================
-estado_actual_casco = None  # Evita que el servo se mueva si el estado no ha cambiado
+estado_actual_casco = None  # Monitorea cambios en la API
+angulo_servo = 0            # Ángulo dinámico que el hilo PWM mantendrá activo
 
 # ==========================================
 # 1. CONFIGURACIÓN DE HARDWARE (gpiod NATIVO)
@@ -29,18 +30,28 @@ linea_led.request(consumer="Jarvis_LED", type=gpiod.LINE_REQ_DIR_OUT)
 linea_servo = chip.get_line(SERVO_LINEA)
 linea_servo.request(consumer="Jarvis_Servo", type=gpiod.LINE_REQ_DIR_OUT)
 
-def set_angle(angle):
-    """Genera un pulso PWM manual para mover el servo"""
-    t_alto = ((angle * 11.11) + 500) / 1000000.0
-    t_bajo = 0.02 - t_alto
-    for _ in range(15):
+# ==========================================
+# 2. HILO DE TORQUE CONTINUO (PWM DE FONDO)
+# ==========================================
+def hilo_mantener_servo_rigido():
+    """Manda pulsos a 50Hz infinitamente para bloquear el servo en su posición"""
+    global angulo_servo
+    while True:
+        # Capturamos el ángulo global actual
+        angle = angulo_servo
+        
+        # Mapeo de ángulo a tiempos (Bit-banging)
+        t_alto = ((angle * 11.11) + 500) / 1000000.0
+        t_bajo = 0.02 - t_alto
+        
+        # Generamos un único ciclo de la onda
         linea_servo.set_value(1)
         sleep(t_alto)
         linea_servo.set_value(0)
         sleep(t_bajo)
 
 # ==========================================
-# 2. SILENCIADOR DE ADVERTENCIAS ALSA
+# 3. SILENCIADOR DE ADVERTENCIAS ALSA
 # ==========================================
 @contextmanager
 def suprimir_stderr():
@@ -56,7 +67,7 @@ def suprimir_stderr():
         os.close(old_stderr)
 
 # ==========================================
-# 3. CONFIGURACIÓN DE AUDIO & API (ASSEMBLYAI)
+# 4. CONFIGURACIÓN DE AUDIO & API (ASSEMBLYAI)
 # ==========================================
 aai.settings.base_url = "https://api.assemblyai.com"
 aai.settings.api_key = "abd3cd8bcd7b4b42a9ba8069cc189ecf"
@@ -105,15 +116,15 @@ def grabar_comando(device_idx):
         wf.writeframes(b''.join(frames))
 
 # ==========================================
-# 4. HILO DE MONITOREO CONTINUO (GET REQ)
+# 5. HILO DE MONITOREO CONTINUO (GET REQ)
 # ==========================================
 def hilo_monitoreo_api():
-    """Revisa constantemente la API y actualiza el hardware físico si el estado cambia"""
-    global estado_actual_casco
+    """Revisa la API y cambia el ángulo objetivo si el estado en la nube varía"""
+    global estado_actual_casco, angulo_servo
     payload_req = ''
     headers = {}
     
-    print("[MONITOR] >>> Hilo de sincronización con API UACJ iniciado.")
+    print("[MONITOR] >>> Sincronización asíncrona con API UACJ activa.")
     
     while True:
         conn = http.client.HTTPSConnection("uacj.ivancarvajal.org")
@@ -127,50 +138,46 @@ def hilo_monitoreo_api():
                 payload_str = response_json["items"][0]['payload']
                 status_api = json.loads(payload_str)["status"]
 
-                # Solo actuamos si el estado en la nube es diferente al estado físico actual
                 if status_api != estado_actual_casco:
                     estado_actual_casco = status_api
                     if status_api == 0:
                         linea_led.set_value(0)
-                        set_angle(0)
-                        print("\n[HARDWARE] >>> API mandó CERRAR: LED OFF / SERVO 0°")
+                        angulo_servo = 0      # Cambiamos el ángulo meta, el hilo PWM lo mantendrá ahí
+                        print("\n[API -> CAMBIO] >>> Modo CERRAR: Ojos OFF / Servo bloqueado a 0°")
                     else:
                         linea_led.set_value(1)
-                        set_angle(90)
-                        print("\n[HARDWARE] >>> API mandó ABRIR: LED ON / SERVO 90°")
+                        angulo_servo = 90     # Cambiamos el ángulo meta, el hilo PWM lo mantendrá ahí
+                        print("\n[API -> CAMBIO] >>> Modo ABRIR: Ojos ON / Servo bloqueado a 90°")
                         
         except Exception as e:
-            pass # Silencioso para no romper la estética de la consola
+            pass
         finally:
             conn.close()
         
-        sleep(1)  # Consulta la base de datos cada segundo
+        sleep(1)
 
 # ==========================================
-# 5. ACTUALIZACIÓN POR VOZ (POST REQ)
+# 6. ENVIAR ACTUALIZACIÓN (POST REQ)
 # ==========================================
 def enviar_post_api(status_val):
-    """Actualiza el servidor utilizando el método POST requerido"""
     conn = http.client.HTTPSConnection("uacj.ivancarvajal.org")
     payload = ''
     headers = {}
-    # Reemplazamos el método PUT por POST manteniendo tu estructura de query parameters
     path = f"/ords/uacj/ironman/Jarvis?equipo=Equipo%202&payload=%7B%20%22Modelo%22:%20%22MK-50%22,%20%22potencia%22:%201200,%22status%22:{status_val}%7D&id=9133"
     
     try:
-        conn.request("POST", path, payload, headers)  # <--- Cambiado a POST
+        conn.request("POST", path, payload, headers)
         res = conn.getresponse()
         if res.status == 200:
-            print(f"[API POST] >>> Servidor actualizado exitosamente a status: {status_val}")
+            print(f"[API POST] >>> Estatus subido a la nube: {status_val}")
         else:
-            print(f"[API POST] >>> Error de respuesta: {res.status}")
+            print(f"[API POST] >>> Error de servidor: {res.status}")
     except Exception as e:
-        print(f"[API POST] >>> Error de conexión: {str(e)}")
+        print(f"[API POST] >>> Error de red: {str(e)}")
     finally:
         conn.close()
 
 def procesar_comando_voz():
-    """Transcribe y decide el cambio de estado en la nube"""
     config = aai.TranscriptionConfig(
         speech_models=["universal-3-pro", "universal-2"],
         language_detection=True,
@@ -187,17 +194,16 @@ def procesar_comando_voz():
     print(f"[Jarvis entendió]: '{texto}'")
 
     if "open" in texto or "abrir" in texto:
-        print("-> Lógica por Voz: Solicitando APERTURA en la nube...")
-        enviar_post_api(1)  # Sube el cambio a la API, el hilo de monitoreo hará el movimiento físico
-        
+        print("-> Voz: Solicitando APERTURA...")
+        enviar_post_api(1)
     elif "close" in texto or "cerrar" in texto:
-        print("-> Lógica por Voz: Solicitando CIERRE en la nube...")
-        enviar_post_api(0)  # Sube el cambio a la API, el hilo de monitoreo hará el movimiento físico
+        print("-> Voz: Solicitando CIERRE...")
+        enviar_post_api(0)
     else:
         print("-> Comando de voz no reconocido.")
 
 # ==========================================
-# 6. ENTRADA PRINCIPAL
+# 7. ENTRADA PRINCIPAL Y LANZAMIENTO DE HILOS
 # ==========================================
 if __name__ == "__main__":
     idx = buscar_indice_ugreen()
@@ -207,11 +213,15 @@ if __name__ == "__main__":
         
     print(f"Adaptador de audio detectado en el índice: {idx}")
     
-    # Lanzamos el hilo de consulta de API en segundo plano
-    monitor_thread = threading.Thread(target=hilo_monitoreo_api, daemon=True)
-    monitor_thread.start()
+    # 1. Hilo para consultar la API (Cada 1 segundo)
+    api_thread = threading.Thread(target=hilo_monitoreo_api, daemon=True)
+    api_thread.start()
     
-    print("Sistemas ciberfísicos listos de manera asíncrona.")
+    # 2. Hilo para inyectar PWM constantemente (Torque bloqueado a 50Hz)
+    pwm_thread = threading.Thread(target=hilo_mantener_servo_rigido, daemon=True)
+    pwm_thread.start()
+    
+    print("Sistemas en ejecución asíncrona distribuidos en 3 hilos nativos.")
     
     try:
         while True:
