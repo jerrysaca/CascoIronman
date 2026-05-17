@@ -7,7 +7,7 @@ from time import sleep
 # ==========================================
 # 1. CONFIGURACIÓN DE HARDWARE (gpiod NATIVO)
 # ==========================================
-SERVO_LINEA = 6   # Pin Físico 7 (PA6)
+SERVO_LINEA = 73   # Pin Físico 7 (PA6)
 LED_LINEA = 70    # Pin Físico 11 (PC6)
 
 # Abrimos el chip de control principal de la Orange Pi
