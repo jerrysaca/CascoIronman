@@ -22,7 +22,7 @@ angulo_servo2 = 0           # Ángulo dinámico que el hilo PWM mantendrá activ
 # 1. CONFIGURACIÓN DE HARDWARE (gpiod NATIVO)
 # ==========================================
 SERVO_LINEA = 73  # Pin Físico 13 (PC9)
-SERVO_LINEA2 = 72  # Pin Físico 15 (PC8)
+SERVO_LINEA2 = 69  # Pin Físico 15 (PC8)
 LED_LINEA = 70    # Pin Físico 11 (PC6)
 
 chip = gpiod.Chip('gpiochip0')
