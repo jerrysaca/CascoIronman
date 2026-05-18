@@ -16,7 +16,7 @@ from time import sleep
 # ==========================================
 estado_actual_casco = None  # Monitorea cambios en la API
 angulo_servo = 0            # Ángulo dinámico que el hilo PWM mantendrá activo
-angulo_servo2 = 180           # Ángulo dinámico que el hilo PWM mantendrá activo para el segundo servo
+angulo_servo2 = 0           # Ángulo dinámico que el hilo PWM mantendrá activo para el segundo servo
 
 # ==========================================
 # 1. CONFIGURACIÓN DE HARDWARE (gpiod NATIVO)
@@ -138,7 +138,7 @@ def grabar_comando(device_idx):
 # ==========================================
 def hilo_monitoreo_api():
     """Revisa la API y cambia el ángulo objetivo si el estado en la nube varía"""
-    global estado_actual_casco, angulo_servo
+    global estado_actual_casco, angulo_servo, angulo_servo2
     payload_req = ''
     headers = {}
     
