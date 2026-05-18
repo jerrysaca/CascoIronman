@@ -16,7 +16,7 @@ from time import sleep
 # ==========================================
 estado_actual_casco = None  # Monitorea cambios en la API
 angulo_servo = 0            # Ángulo dinámico que el hilo PWM mantendrá activo
-angulo_servo2 = 0           # Ángulo dinámico que el hilo PWM mantendrá activo para el segundo servo
+angulo_servo2 = 180           # Ángulo dinámico que el hilo PWM mantendrá activo para el segundo servo
 
 # ==========================================
 # 1. CONFIGURACIÓN DE HARDWARE (gpiod NATIVO)
@@ -52,14 +52,14 @@ def hilo_mantener_servo_rigido():
         t_bajo = 0.02 - t_alto
 
         t_alto2 = ((angle2 * 11.11) + 500) / 1000000.0
-        t_bajo2 = 0.02 - t_alto
+        t_bajo2 = 0.02 - t_alto2
         
         # --- PULSO ALTO PRECISE TIMING ---
         # Iniciamos un bucle cerrado para asegurar precisión micrométrica
         start = time.perf_counter()
         linea_servo.set_value(1)
         linea_servo2.set_value(1)
-        while (time.perf_counter() - start) < t_alto:
+        while (time.perf_counter() - start) < t_alto and (time.perf_counter() - start) < t_alto2:
             pass  # Se queda aquí atrapado el tiempo exacto sin ceder el control al OS
         linea_servo.set_value(0)
         linea_servo2.set_value(0)  # Aseguramos que el segundo servo también se mantenga en bajo durante el pulso alto
