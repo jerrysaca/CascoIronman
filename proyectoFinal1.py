@@ -16,7 +16,7 @@ from time import sleep
 # ==========================================
 estado_actual_casco = None  # Monitorea cambios en la API
 angulo_servo = 0            # Ángulo dinámico que el hilo PWM mantendrá activo
-angulo_servo2 = 0           # Ángulo dinámico que el hilo PWM mantendrá activo para el segundo servo
+angulo_servo2 = 180           # Ángulo dinámico que el hilo PWM mantendrá activo para el segundo servo
 
 # ==========================================
 # 1. CONFIGURACIÓN DE HARDWARE (gpiod NATIVO)
@@ -58,11 +58,11 @@ def hilo_mantener_servo_rigido():
         # Iniciamos un bucle cerrado para asegurar precisión micrométrica
         start = time.perf_counter()
         linea_servo.set_value(1)
-        linea_servo2.set_value(0)
+        linea_servo2.set_value(1)
         while (time.perf_counter() - start) < t_alto:
             pass  # Se queda aquí atrapado el tiempo exacto sin ceder el control al OS
         linea_servo.set_value(0)
-        linea_servo2.set_value(1)  # Aseguramos que el segundo servo también se mantenga en bajo durante el pulso alto
+        linea_servo2.set_value(0)  # Aseguramos que el segundo servo también se mantenga en bajo durante el pulso alto
         
         # --- PULSO BAJO ---
         # Aquí sí dormimos de forma normal para que la Orange Pi maneje sus otros hilos
