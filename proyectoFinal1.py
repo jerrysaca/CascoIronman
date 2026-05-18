@@ -15,15 +15,15 @@ from time import sleep
 # 0. VARIABLES DE ESTADO GLOBAL
 # ==========================================
 estado_actual_casco = None  # Monitorea cambios en la API
-angulo_servo = 0            # Ángulo dinámico que el hilo PWM mantendrá activo
-angulo_servo2 = 180           # Ángulo dinámico que el hilo PWM mantendrá activo para el segundo servo
+angulo_servo = 0            # Ángulo para Servo 1 (PC9)
+angulo_servo2 = 180         # Ángulo para Servo 2 (PC8) - Inverso por defecto
 
 # ==========================================
 # 1. CONFIGURACIÓN DE HARDWARE (gpiod NATIVO)
 # ==========================================
-SERVO_LINEA = 73  # Pin Físico 13 (PC9)
+SERVO_LINEA = 73   # Pin Físico 13 (PC9)
 SERVO_LINEA2 = 69  # Pin Físico 15 (PC8)
-LED_LINEA = 70    # Pin Físico 11 (PC6)
+LED_LINEA = 70     # Pin Físico 11 (PC6)
 
 chip = gpiod.Chip('gpiochip0')
 
@@ -37,36 +37,48 @@ linea_servo2 = chip.get_line(SERVO_LINEA2)
 linea_servo2.request(consumer="Jarvis_Servo2", type=gpiod.LINE_REQ_DIR_OUT)
 
 # ==========================================
-# 2. HILO DE TORQUE CONTINUO (PWM DE FONDO)
+# 2. HILO DE TORQUE CONTINUO (PWM MULTIPIN DE ALTA PRECISIÓN)
 # ==========================================
 def hilo_mantener_servo_rigido():
-    """Mantiene el servo bloqueado reduciendo el jitter con Busy-Waiting en el pulso alto"""
+    """Genera PWM independiente para dos servos usando control por flancos de tiempo"""
     global angulo_servo, angulo_servo2
     while True:
-        # Capturamos el ángulo global actual
-        angle = angulo_servo
+        # Capturamos los ángulos globales actuales de forma segura
+        angle1 = angulo_servo
         angle2 = angulo_servo2
         
-        # Mapeo de ángulo a tiempos (segundos)
-        t_alto = ((angle * 11.11) + 500) / 1000000.0
-        t_bajo = 0.02 - t_alto
-
+        # Mapeo independiente de ángulo a tiempos en alto (segundos)
+        t_alto1 = ((angle1 * 11.11) + 500) / 1000000.0
         t_alto2 = ((angle2 * 11.11) + 500) / 1000000.0
-        t_bajo2 = 0.02 - t_alto2
         
-        # --- PULSO ALTO PRECISE TIMING ---
-        # Iniciamos un bucle cerrado para asegurar precisión micrométrica
         start = time.perf_counter()
-        linea_servo.set_value(1)
-        linea_servo2.set_value(0)
-        while (time.perf_counter() - start) < t_alto and (time.perf_counter() - start) < t_alto2:
-            pass  # Se queda aquí atrapado el tiempo exacto sin ceder el control al OS
-        linea_servo.set_value(0)
-        linea_servo2.set_value(1)  # Aseguramos que el segundo servo también se mantenga en bajo durante el pulso alto
         
-        # --- PULSO BAJO ---
-        # Aquí sí dormimos de forma normal para que la Orange Pi maneje sus otros hilos
-        sleep(t_bajo)
+        # Encendemos ambos canales al mismo tiempo (Inicio del ciclo PWM)
+        linea_servo.set_value(1)
+        linea_servo2.set_value(1)
+        
+        flag_servo1_encendido = True
+        flag_servo2_encendido = True
+        
+        # Bucle cerrado (Busy-Waiting): Monitorea y apaga cada pin en su tiempo exacto
+        while flag_servo1_encendido or flag_servo2_encendido:
+            elapsed = time.perf_counter() - start
+            
+            # Flanco de bajada para el Servo 1
+            if flag_servo1_encendido and elapsed >= t_alto1:
+                linea_servo.set_value(0)
+                flag_servo1_encendido = False
+                
+            # Flanco de bajada para el Servo 2
+            if flag_servo2_encendido and elapsed >= t_alto2:
+                linea_servo2.set_value(0)
+                flag_servo2_encendido = False
+        
+        # --- COMPENSACIÓN DEL PERIODO TOTAL (50Hz = 20ms) ---
+        # Calculamos cuánto tiempo queda para completar los 20ms totales del frame
+        tiempo_restante_frame = 0.02 - (time.perf_counter() - start)
+        if tiempo_restante_frame > 0:
+            sleep(tiempo_restante_frame)
 
 # ==========================================
 # 3. SILENCIADOR DE ADVERTENCIAS ALSA
@@ -137,7 +149,7 @@ def grabar_comando(device_idx):
 # 5. HILO DE MONITOREO CONTINUO (GET REQ)
 # ==========================================
 def hilo_monitoreo_api():
-    """Revisa la API y cambia el ángulo objetivo si el estado en la nube varía"""
+    """Revisa la API y cambia los ángulos objetivos de forma inversa"""
     global estado_actual_casco, angulo_servo, angulo_servo2
     payload_req = ''
     headers = {}
@@ -160,14 +172,14 @@ def hilo_monitoreo_api():
                     estado_actual_casco = status_api
                     if status_api == 0:
                         linea_led.set_value(0)
-                        angulo_servo = 0      # Cambiamos el ángulo meta, el hilo PWM lo mantendrá ahí
-                        angulo_servo2 = 180
-                        print("\n[API -> CAMBIO] >>> Modo CERRAR: Ojos OFF")
+                        angulo_servo = 0       # Servo 1 va a 0 grados
+                        angulo_servo2 = 180    # Servo 2 va al extremo opuesto (180 grados)
+                        print("\n[API -> CAMBIO] >>> Modo CERRAR: Servo1: 0° | Servo2: 180°")
                     else:
                         linea_led.set_value(1)
-                        angulo_servo = 180     # Cambiamos el ángulo meta, el hilo PWM lo mantendrá ahí
-                        angulo_servo2 = 0
-                        print("\n[API -> CAMBIO] >>> Modo ABRIR: Ojos ON ")
+                        angulo_servo = 180     # Servo 1 va a 180 grados
+                        angulo_servo2 = 0      # Servo 2 va al extremo opuesto (0 grados)
+                        print("\n[API -> CAMBIO] >>> Modo ABRIR: Servo1: 180° | Servo2: 0°")
                         
         except Exception as e:
             pass
@@ -226,10 +238,7 @@ def procesar_comando_voz():
 # 7. ENTRADA PRINCIPAL Y LANZAMIENTO DE HILOS
 # ==========================================
 if __name__ == "__main__":
-
-    import os
     try:
-        # Forzamos al sistema a darle la máxima prioridad de tiempo real (99)
         os.sched_setscheduler(0, os.SCHED_FIFO, os.sched_param(99))
         print("[OS] >>> Prioridad de Tiempo Real (SCHED_FIFO) activada con éxito.")
     except Exception as e:
@@ -242,11 +251,9 @@ if __name__ == "__main__":
         
     print(f"Adaptador de audio detectado en el índice: {idx}")
     
-    # 1. Hilo para consultar la API (Cada 1 segundo)
     api_thread = threading.Thread(target=hilo_monitoreo_api, daemon=True)
     api_thread.start()
     
-    # 2. Hilo para inyectar PWM constantemente (Torque bloqueado a 50Hz)
     pwm_thread = threading.Thread(target=hilo_mantener_servo_rigido, daemon=True)
     pwm_thread.start()
     
