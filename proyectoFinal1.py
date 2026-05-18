@@ -41,19 +41,24 @@ linea_servo2.request(consumer="Jarvis_Servo2", type=gpiod.LINE_REQ_DIR_OUT)
 # ==========================================
 def hilo_mantener_servo_rigido():
     """Mantiene el servo bloqueado reduciendo el jitter con Busy-Waiting en el pulso alto"""
-    global angulo_servo
+    global angulo_servo, angulo_servo2
     while True:
         # Capturamos el ángulo global actual
         angle = angulo_servo
+        angle2 = angulo_servo2
         
         # Mapeo de ángulo a tiempos (segundos)
         t_alto = ((angle * 11.11) + 500) / 1000000.0
         t_bajo = 0.02 - t_alto
+
+        t_alto2 = ((angle2 * 11.11) + 500) / 1000000.0
+        t_bajo2 = 0.02 - t_alto
         
         # --- PULSO ALTO PRECISE TIMING ---
         # Iniciamos un bucle cerrado para asegurar precisión micrométrica
         start = time.perf_counter()
         linea_servo.set_value(1)
+        linea_servo2.set_value(1)
         while (time.perf_counter() - start) < t_alto:
             pass  # Se queda aquí atrapado el tiempo exacto sin ceder el control al OS
         linea_servo.set_value(0)
