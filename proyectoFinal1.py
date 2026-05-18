@@ -16,11 +16,13 @@ from time import sleep
 # ==========================================
 estado_actual_casco = None  # Monitorea cambios en la API
 angulo_servo = 0            # Ángulo dinámico que el hilo PWM mantendrá activo
+angulo_servo2 = 0           # Ángulo dinámico que el hilo PWM mantendrá activo para el segundo servo
 
 # ==========================================
 # 1. CONFIGURACIÓN DE HARDWARE (gpiod NATIVO)
 # ==========================================
 SERVO_LINEA = 73  # Pin Físico 13 (PC9)
+SERVO_LINEA2 = 72  # Pin Físico 15 (PC8)
 LED_LINEA = 70    # Pin Físico 11 (PC6)
 
 chip = gpiod.Chip('gpiochip0')
@@ -30,6 +32,9 @@ linea_led.request(consumer="Jarvis_LED", type=gpiod.LINE_REQ_DIR_OUT)
 
 linea_servo = chip.get_line(SERVO_LINEA)
 linea_servo.request(consumer="Jarvis_Servo", type=gpiod.LINE_REQ_DIR_OUT)
+
+linea_servo2 = chip.get_line(SERVO_LINEA2)
+linea_servo2.request(consumer="Jarvis_Servo2", type=gpiod.LINE_REQ_DIR_OUT)
 
 # ==========================================
 # 2. HILO DE TORQUE CONTINUO (PWM DE FONDO)
@@ -52,6 +57,7 @@ def hilo_mantener_servo_rigido():
         while (time.perf_counter() - start) < t_alto:
             pass  # Se queda aquí atrapado el tiempo exacto sin ceder el control al OS
         linea_servo.set_value(0)
+        linea_servo2.set_value(0)  # Aseguramos que el segundo servo también se mantenga en bajo durante el pulso alto
         
         # --- PULSO BAJO ---
         # Aquí sí dormimos de forma normal para que la Orange Pi maneje sus otros hilos
@@ -150,11 +156,13 @@ def hilo_monitoreo_api():
                     if status_api == 0:
                         linea_led.set_value(0)
                         angulo_servo = 0      # Cambiamos el ángulo meta, el hilo PWM lo mantendrá ahí
-                        print("\n[API -> CAMBIO] >>> Modo CERRAR: Ojos OFF / Servo bloqueado a 0°")
+                        angulo_servo2 = 180
+                        print("\n[API -> CAMBIO] >>> Modo CERRAR: Ojos OFF")
                     else:
                         linea_led.set_value(1)
-                        angulo_servo = 90     # Cambiamos el ángulo meta, el hilo PWM lo mantendrá ahí
-                        print("\n[API -> CAMBIO] >>> Modo ABRIR: Ojos ON / Servo bloqueado a 90°")
+                        angulo_servo = 180     # Cambiamos el ángulo meta, el hilo PWM lo mantendrá ahí
+                        angulo_servo2 = 0
+                        print("\n[API -> CAMBIO] >>> Modo ABRIR: Ojos ON ")
                         
         except Exception as e:
             pass
