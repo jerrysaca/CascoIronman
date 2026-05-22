@@ -227,10 +227,10 @@ def procesar_comando_voz():
 
     if "open" in texto or "abrir" in texto:
         print("-> Voz: Solicitando APERTURA...")
-        enviar_post_api(1)
+        enviar_post_api(0)
     elif "close" in texto or "cerrar" in texto:
         print("-> Voz: Solicitando CIERRE...")
-        enviar_post_api(0)
+        enviar_post_api(1)
     else:
         print("-> Comando de voz no reconocido.")
 
