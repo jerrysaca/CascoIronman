@@ -102,10 +102,10 @@ while cap.isOpened():
 
     # Desplegamos la realimentación visual en la ventana gráfica
     if estado_anterior == 1:
-        texto_visual = "CASCO: ABIERTO (Sosteniendo estado)"
+        texto_visual = "CASCO: ABIERTO"
         color_visual = (0, 255, 0)
     elif estado_anterior == 0:
-        texto_visual = "CASCO: CERRADO (Sosteniendo estado)"
+        texto_visual = "CASCO: CERRADO"
         color_visual = (0, 0, 255)
     else:
         texto_visual = "CASCO: ESPERANDO PRIMER GESTO..."
